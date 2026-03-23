@@ -21,10 +21,11 @@ learning_rate = 0.01  # 基础学习率
 weight_decay = 0.001  # 权重衰减系数
 num_blocks = 2  # lstm堆叠次数
 dim = 128  # 隐层维度
-interval_length = 1100  # 预测数据长度，最长不可以超过总数据条数
+interval_length = 800  # 预测数据长度，最长不可以超过总数据条数
 scalar = True  # 是否使用归一化
 scalar_contain_labels = True  # 归一化过程是否包含目标值的历史数据
-target_value = 'J_P'  # 需要预测的列名，可以在excel中查看
+target_value = 'I_P'  # 需要预测的列名，可以在excel中查看
+interpolation = False
 # 多步，单步标签
 if output_length > 1:
     forecasting_model = 'multi_steps'
@@ -36,15 +37,21 @@ else:
 # file_name = "E:\data\output_lines_0-6\甘肃.31450高安马线.csv"
 # file_name = "E:\data\output_lines_0-6\东北.阿林二线.csv"
 # file_name = "E:\data\output_lines_0-6\东北.阿林二线.csv"
-file_name="E:\data\output_lines_0-6\甘肃.3G2315河立线.csv"
+file_name=r"E:\data\full_lines1\西北.7101泾乾Ⅰ线.csv"
 df = pd.read_csv(file_name)
 df = df[:interval_length]
+if interpolation:
+    df[target_value] = df[target_value].replace(0, np.nan)
+    df[target_value] = df[target_value].interpolate(method='linear')
+    df[target_value] = df[target_value].bfill().ffill()
+
 features_num = 1  # 请手动输入特征维度数量
 if features_num > 1:
     features_ = df.values
 else:
     features_ = df[target_value].values
 labels_ = df[target_value].values
+print(max(labels_), min(labels_))
 # 初步划分训练集、验证集、测试集
 split_train_val, split_val_test = int(len(features_)*train_ratio),\
                                   int(len(features_)*train_ratio)+int(len(features_)*val_ratio)
@@ -113,7 +120,7 @@ for epoch in range(epochs):
         prediction = LSTMMain_model(feature_)
         loss = loss_func(prediction, label_)
         loss.backward()
-        torch.nn.utils.clip_grad_norm(LSTMMain_model.parameters(), 0.15)
+        torch.nn.utils.clip_grad_norm_(LSTMMain_model.parameters(), 0.15)
         optimizer.step()
         train_loss_sum+=loss.item()
     print("epochs = " + str(epoch))

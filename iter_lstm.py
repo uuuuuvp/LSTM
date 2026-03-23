@@ -2,6 +2,7 @@ import pandas as pd
 import torch, os
 import matplotlib.pyplot as plt
 from sklearn import preprocessing
+from scipy import interpolate
 from models import *
 from utils import *
 import yaml
@@ -12,6 +13,7 @@ config_file = "Exp/ConfigPara/lstm_IP_800_4_1.yaml"
 with open(config_file, 'r', encoding='utf-8') as f:
     config = yaml.safe_load(f)
 
+day_flag = config['data_split']['day_flag']
 train_ratio = config['data_split']['train_ratio']
 val_ratio = config['data_split']['val_ratio']
 test_ratio = config['data_split']['test_ratio']
@@ -32,12 +34,13 @@ dim = config['model']['dim']
 scalar = config['preprocessing']['scalar']
 scalar_contain_labels = config['preprocessing']['scalar_contain_labels']
 target_value = config['preprocessing']['target_value']
+interpolation = config['preprocessing']['interpolation']
 
 data_directory = config['paths']['data_directory']
 input_file = config['paths']['input_file']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-output_file = f"./Exp/LSTMResult/LSTM_full_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
+output_file = f"./Exp/LSTMResult/LSTM_full_cz_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
 
 lines_df = pd.read_csv(input_file)
 
@@ -77,7 +80,11 @@ for idx, row in results_df.iterrows():
             print("数据太短")
             results_df.loc[idx, 'status'] = 'too_short'
             continue
-
+        if interpolation:
+            df[target_value] = df[target_value].replace(0, np.nan)
+            df[target_value] = df[target_value].interpolate(method='linear')
+            df[target_value] = df[target_value].bfill().ffill()
+        
         features_num = 1
         if features_num > 1:
             features_ = df.values
@@ -85,7 +92,7 @@ for idx, row in results_df.iterrows():
             features_ = df[target_value].values
 
         labels_ = df[target_value].values
-        print(max(labels_), min(labels_))
+        print(f"({min(labels_)})=>({max(labels_)})")
 
         split_train_val = int(len(features_)*train_ratio)
         split_val_test = split_train_val + int(len(features_)*val_ratio)
@@ -236,7 +243,7 @@ for idx, row in results_df.iterrows():
         MAPE_l = mean_absolute_percentage_error(test_labels_np, pre_array)
         R2 = r2_score(test_labels_np, pre_array)
 
-        print(f"成功: MAE={MAE_l:.4f}, MAPE={MAPE_l:.4f}")
+        print(f"MSE={MSE_l:.2f} | MAE={MAE_l:.2f} | MAPE={MAPE_l:.2f} | R^2={R2:.2f}")
 
         # ======== 保存结果（新增）=======
         results_df.loc[idx, 'mae'] = MAE_l
