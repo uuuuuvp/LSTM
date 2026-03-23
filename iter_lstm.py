@@ -8,7 +8,8 @@ import yaml
 from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error, mean_squared_error, r2_score
 from torch.utils.data import DataLoader, TensorDataset
 
-with open('config.yaml', 'r', encoding='utf-8') as f:
+config_file = "Exp/ConfigPara/lstm_IP_800_4_1.yaml"
+with open(config_file, 'r', encoding='utf-8') as f:
     config = yaml.safe_load(f)
 
 train_ratio = config['data_split']['train_ratio']
@@ -36,7 +37,7 @@ data_directory = config['paths']['data_directory']
 input_file = config['paths']['input_file']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-output_file = f"./Exp/LSTMResult/LSTM_results_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
+output_file = f"./Exp/LSTMResult/LSTM_full_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
 
 lines_df = pd.read_csv(input_file)
 
