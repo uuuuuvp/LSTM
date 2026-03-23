@@ -4,29 +4,39 @@ import matplotlib.pyplot as plt
 from sklearn import preprocessing
 from models import *
 from utils import *
+import yaml
 from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error, mean_squared_error, r2_score
 from torch.utils.data import DataLoader, TensorDataset
 
+with open('config.yaml', 'r', encoding='utf-8') as f:
+    config = yaml.safe_load(f)
+
+train_ratio = config['data_split']['train_ratio']
+val_ratio = config['data_split']['val_ratio']
+test_ratio = config['data_split']['test_ratio']
+
+batch_size = config['dataloader']['batch_size']
+input_length = config['dataloader']['input_length']
+output_length = config['dataloader']['output_length']
+interval_length = config['dataloader']['interval_length']
+
+epochs = config['training']['epochs']
+loss_function = config['training']['loss_function']
+learning_rate = config['training']['optimizer']['learning_rate']
+weight_decay = config['training']['optimizer']['weight_decay']
+
+num_blocks = config['model']['num_blocks']
+dim = config['model']['dim']
+
+scalar = config['preprocessing']['scalar']
+scalar_contain_labels = config['preprocessing']['scalar_contain_labels']
+target_value = config['preprocessing']['target_value']
+
+data_directory = config['paths']['data_directory']
+input_file = config['paths']['input_file']
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-train_ratio = 0.8
-val_ratio = 0.1
-test_ratio = 0.1
-batch_size = 128
-input_length = 4
-output_length = 1
-loss_function = 'MSE'
-learning_rate = 0.01
-weight_decay = 0.001
-num_blocks = 2
-dim = 128
-interval_length = 800
-epochs = 50
-scalar = True
-scalar_contain_labels = True
-target_value = 'I_P'
-data_directory = "E:/data/output_lines_0-6/"
-input_file = "./sampled_lines.csv"
-output_file = f"LSTM_results_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
+output_file = f"./Exp/LSTMResult/LSTM_results_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
 
 lines_df = pd.read_csv(input_file)
 
