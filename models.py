@@ -14,8 +14,8 @@ class LSTM(nn.Module):
 
     def forward(self, input_seq):
         batch_size, seq_len = input_seq.shape[0], input_seq.shape[1]
-        h_0 = torch.randn(self.num_layers, batch_size, self.hidden_size).to(self.device)
-        c_0 = torch.randn(self.num_layers, batch_size, self.hidden_size).to(self.device)
+        h_0 = torch.zeros(self.num_layers, batch_size, self.hidden_size).to(self.device)
+        c_0 = torch.zeros(self.num_layers, batch_size, self.hidden_size).to(self.device)
         output, (h, c) = self.lstm(input_seq, (h_0, c_0))
         return output, h
 
