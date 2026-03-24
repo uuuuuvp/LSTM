@@ -34,14 +34,16 @@ dim = config['model']['dim']
 scalar = config['preprocessing']['scalar']
 scalar_contain_labels = config['preprocessing']['scalar_contain_labels']
 target_value = config['preprocessing']['target_value']
+outlier_flag = config['preprocessing']['outlier_flag']
 interpolation = config['preprocessing']['interpolation']
 features_num = config['preprocessing']['features_num']
+
 
 data_directory = config['paths']['data_directory']
 input_file = config['paths']['input_file']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-output_file = f"./Exp/LSTMResult/LSTM-FulCz-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+output_file = f"./Exp/LSTMResult/LSTM-FulCzOt-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
 # output_file = f"./Exp/LSTMResult/cs_cz_{features_num}_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
 
 lines_df = pd.read_csv(input_file)
@@ -57,7 +59,6 @@ if output_length > 1:
     forecasting_model = 'multi_steps'
 else:
     forecasting_model = 'one_steps'
-
 
 # ================== 批处理循环（新增） ==================
 for idx, row in results_df.iterrows():
@@ -82,6 +83,16 @@ for idx, row in results_df.iterrows():
             print("数据太短")
             results_df.loc[idx, 'status'] = 'too_short'
             continue
+        
+        # 异常值检测，3-Sigma
+        if outlier_flag:
+            _mean = df[target_value].mean()
+            _std = df[target_value].std()
+            upper_limit = _mean + 3 * _std
+            lower_limit = _mean - 3 * _std
+            # 将异常值标记为 nan，交给后面的 interpolate 处理
+            df.loc[(df[target_value] > upper_limit) | (df[target_value] < lower_limit), target_value] = np.nan
+
         if interpolation:
             df[target_value] = df[target_value].replace(0, np.nan)
             df[target_value] = df[target_value].interpolate(method='linear')

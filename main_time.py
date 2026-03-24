@@ -25,7 +25,8 @@ interval_length = 1600  # 预测数据长度，最长不可以超过总数据条
 scalar = True  # 是否使用归一化
 scalar_contain_labels = True  # 归一化过程是否包含目标值的历史数据
 target_value = 'I_P'  # 需要预测的列名，可以在excel中查看
-features_num = 1  # 请手动输入特征维度数量
+features_num = 3  # 请手动输入特征维度数量
+outlier_flag = True
 interpolation = True
 
 # 多步，单步标签
@@ -35,10 +36,19 @@ else:
     forecasting_model = 'one_steps'
 
 #  读取数据
-file_name = "E:\data\output_lines_0-6\四川.泉丹二线.csv"
+# file_name = "E:\data\output_lines_0-6\四川.泉丹二线.csv"
+file_name = "E:\data\output_lines_0-6\四川.俄木线.csv"
 # file_name=r"E:\data\full_lines1\西北.7101泾乾Ⅰ线.csv"
 df = pd.read_csv(file_name)
 df = df[:interval_length]
+# 异常值检测，3-Sigma
+if outlier_flag:
+    _mean = df[target_value].mean()
+    _std = df[target_value].std()
+    upper_limit = _mean + 3 * _std
+    lower_limit = _mean - 3 * _std
+    # 将异常值标记为 nan，交给后面的 interpolate 处理
+    df.loc[(df[target_value] > upper_limit) | (df[target_value] < lower_limit), target_value] = np.nan
 
 if interpolation:
     df[target_value] = df[target_value].replace(0, np.nan)
