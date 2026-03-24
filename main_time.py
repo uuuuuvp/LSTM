@@ -28,7 +28,8 @@ target_value = 'I_P'  # 需要预测的列名，可以在excel中查看
 features_num = 3  # 请手动输入特征维度数量
 outlier_flag = True
 interpolation = True
-
+lag_points = 84
+Otl_Plt_M, threshold, limit = 'mad', 5.0, 3
 # 多步，单步标签
 if output_length > 1:
     forecasting_model = 'multi_steps'
@@ -42,18 +43,20 @@ file_name = "E:\data\output_lines_0-6\四川.俄木线.csv"
 df = pd.read_csv(file_name)
 df = df[:interval_length]
 # 异常值检测，3-Sigma
-if outlier_flag:
-    _mean = df[target_value].mean()
-    _std = df[target_value].std()
-    upper_limit = _mean + 3 * _std
-    lower_limit = _mean - 3 * _std
-    # 将异常值标记为 nan，交给后面的 interpolate 处理
-    df.loc[(df[target_value] > upper_limit) | (df[target_value] < lower_limit), target_value] = np.nan
+# if outlier_flag:
+#     _mean = df[target_value].mean()
+#     _std = df[target_value].std()
+#     upper_limit = _mean + 3 * _std
+#     lower_limit = _mean - 3 * _std
+#     # 将异常值标记为 nan，交给后面的 interpolate 处理
+#     df.loc[(df[target_value] > upper_limit) | (df[target_value] < lower_limit), target_value] = np.nan
 
-if interpolation:
-    df[target_value] = df[target_value].replace(0, np.nan)
-    df[target_value] = df[target_value].interpolate(method='linear')
-    df[target_value] = df[target_value].bfill().ffill()
+# if interpolation:
+#     df[target_value] = df[target_value].replace(0, np.nan)
+#     df[target_value] = df[target_value].interpolate(method='linear')
+#     df[target_value] = df[target_value].bfill().ffill()
+if outlier_flag and interpolation:
+    df, outlier_rate = Otl_Plt(df, target_col=target_value, method=Otl_Plt_M, threshold=threshold, lag=lag_points, limit=limit)
 
 if features_num > 1:
     df['timestamp'] = df['timestamp'].str.replace('国调_', '')

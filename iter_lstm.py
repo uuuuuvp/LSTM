@@ -1,6 +1,5 @@
 import pandas as pd
 import torch, os
-import matplotlib.pyplot as plt
 from sklearn import preprocessing
 from scipy import interpolate
 from models import *
@@ -37,23 +36,26 @@ target_value = config['preprocessing']['target_value']
 outlier_flag = config['preprocessing']['outlier_flag']
 interpolation = config['preprocessing']['interpolation']
 features_num = config['preprocessing']['features_num']
-
+lag_points = config['preprocessing']['lag_points']
+Otl_Plt_M = config['preprocessing']['Otl_Plt_M']
+threshold = config['preprocessing']['threshold']
+limit = config['preprocessing']['limit']
 
 data_directory = config['paths']['data_directory']
 input_file = config['paths']['input_file']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-output_file = f"./Exp/LSTMResult/LSTM-FulCzOt-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+# 老异常值检测，插值 命名
+# output_file = f"./Exp/LSTMResult/LSTM-FulCzOt-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+# 新异常值检测，插值一体化
+output_file = f"./Exp/LSTMResult/FulOltPlt-{Otl_Plt_M}-{threshold}-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+# 测试
 # output_file = f"./Exp/LSTMResult/cs_cz_{features_num}_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
 
 lines_df = pd.read_csv(input_file)
 
 results_df = lines_df.copy()
-results_df['mae'] = None
-results_df['mse'] = None
-results_df['mape'] = None
-results_df['r2'] = None
-results_df['status'] = None
+results_df['mae'], results_df['mse'], results_df['mape'], results_df['r2'], results_df['status']= None, None, None, None, None
 
 if output_length > 1:
     forecasting_model = 'multi_steps'
@@ -85,18 +87,20 @@ for idx, row in results_df.iterrows():
             continue
         
         # 异常值检测，3-Sigma
-        if outlier_flag:
-            _mean = df[target_value].mean()
-            _std = df[target_value].std()
-            upper_limit = _mean + 3 * _std
-            lower_limit = _mean - 3 * _std
-            # 将异常值标记为 nan，交给后面的 interpolate 处理
-            df.loc[(df[target_value] > upper_limit) | (df[target_value] < lower_limit), target_value] = np.nan
+        # if outlier_flag:
+        #     _mean = df[target_value].mean()
+        #     _std = df[target_value].std()
+        #     upper_limit = _mean + 3 * _std
+        #     lower_limit = _mean - 3 * _std
+        #     # 将异常值标记为 nan，交给后面的 interpolate 处理
+        #     df.loc[(df[target_value] > upper_limit) | (df[target_value] < lower_limit), target_value] = np.nan
 
-        if interpolation:
-            df[target_value] = df[target_value].replace(0, np.nan)
-            df[target_value] = df[target_value].interpolate(method='linear')
-            df[target_value] = df[target_value].bfill().ffill()
+        # if interpolation:
+        #     df[target_value] = df[target_value].replace(0, np.nan)
+        #     df[target_value] = df[target_value].interpolate(method='linear')
+        #     df[target_value] = df[target_value].bfill().ffill()
+        
+        df, outlier_rate = Otl_Plt(df, target_col=target_value, method=Otl_Plt_M, threshold=threshold, lag=lag_points, limit=limit)
         
         if features_num > 1:
             df['timestamp'] = df['timestamp'].str.replace('国调_', '')
