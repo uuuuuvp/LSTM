@@ -35,8 +35,8 @@ else:
     forecasting_model = 'one_steps'
 
 #  读取数据
-# file_name = "E:\data\output_lines_0-6\湖北.吉垦一回线.csv"
-file_name=r"E:\data\full_lines1\西北.7101泾乾Ⅰ线.csv"
+file_name = "E:\data\output_lines_0-6\四川.泉丹二线.csv"
+# file_name=r"E:\data\full_lines1\西北.7101泾乾Ⅰ线.csv"
 df = pd.read_csv(file_name)
 df = df[:interval_length]
 

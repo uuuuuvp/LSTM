@@ -35,12 +35,14 @@ scalar = config['preprocessing']['scalar']
 scalar_contain_labels = config['preprocessing']['scalar_contain_labels']
 target_value = config['preprocessing']['target_value']
 interpolation = config['preprocessing']['interpolation']
+features_num = config['preprocessing']['features_num']
 
 data_directory = config['paths']['data_directory']
 input_file = config['paths']['input_file']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-output_file = f"./Exp/LSTMResult/LSTM_full_cz_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
+output_file = f"./Exp/LSTMResult/LSTM-FulCz-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+# output_file = f"./Exp/LSTMResult/cs_cz_{features_num}_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
 
 lines_df = pd.read_csv(input_file)
 
@@ -85,9 +87,26 @@ for idx, row in results_df.iterrows():
             df[target_value] = df[target_value].interpolate(method='linear')
             df[target_value] = df[target_value].bfill().ffill()
         
-        features_num = 1
         if features_num > 1:
-            features_ = df.values
+            df['timestamp'] = df['timestamp'].str.replace('国调_', '')
+            df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y%m%d_%H%M')
+            df['hour'] = df['timestamp'].dt.hour
+            df['weekday'] = df['timestamp'].dt.weekday
+            
+            df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
+            df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+            if features_num == 5:
+                df['weekday_sin'] = np.sin(2 * np.pi * df['weekday'] / 7)
+                df['weekday_cos'] = np.cos(2 * np.pi * df['weekday'] / 7)
+                feature_cols = ['hour_sin', 'hour_cos', 'weekday_sin', 'weekday_cos', target_value]
+            else:
+                feature_cols = ['hour_sin', 'hour_cos', target_value]
+            
+            features_num = len(feature_cols) # 自动识别特征数，再次确认
+            df_final = df[feature_cols]
+        
+        if features_num > 1:
+            features_ = df_final.values
         else:
             features_ = df[target_value].values
 
@@ -107,12 +126,10 @@ for idx, row in results_df.iterrows():
             if features_num == 1:
                 train_features_ = np.expand_dims(train_features_, axis=1)
                 val_test_features_ = np.expand_dims(val_test_features_, axis=1)
-
             train_features_ = scalar_model.fit_transform(train_features_)
             val_test_features_ = scalar_model.transform(val_test_features_)
-
+            # 重新将数据进行拼接
             features_ = np.vstack([train_features_, val_test_features_])
-
             if scalar_contain_labels:
                 labels_ = features_[:, -1]
 
@@ -133,19 +150,15 @@ for idx, row in results_df.iterrows():
 
         train_features = features[:split_train_val]
         train_labels = labels[:split_train_val]
-
         val_features = features[split_train_val:split_val_test]
         val_labels = labels[split_train_val:split_val_test]
-
         test_features = features[split_val_test:]
         test_labels = labels[split_val_test:]
 
         train_Datasets = TensorDataset(train_features.to(device), train_labels.to(device))
         train_Loader = DataLoader(batch_size=batch_size, dataset=train_Datasets)
-
         val_Datasets = TensorDataset(val_features.to(device), val_labels.to(device))
         val_Loader = DataLoader(batch_size=batch_size, dataset=val_Datasets)
-
         test_Datasets = TensorDataset(test_features.to(device), test_labels.to(device))
         test_Loader = DataLoader(batch_size=batch_size, dataset=test_Datasets)
 
@@ -176,7 +189,6 @@ for idx, row in results_df.iterrows():
         )
 
         print("Training Starts")
-
         for epoch in range(epochs):
             LSTMMain_model.train()
             train_loss_sum = 0
@@ -215,36 +227,48 @@ for idx, row in results_df.iterrows():
                 pre_array = np.vstack((pre_array, prediction.cpu()))
                 label_array = np.vstack((label_array, label_.cpu()))
 
-        # ======== 反归一化（只改scalar变量名）=======
+# ======== 反归一化（参照指定版本修改）========
         if scalar_contain_labels and scalar:
             pre_inverse = []
             test_inverse = []
+            
+            if features_num == 1 and output_length == 1:
+                for pre_slice in range(pre_array.shape[0]):
+                    pre_inverse_slice = scalar_model.inverse_transform(np.expand_dims(pre_array[pre_slice,:], axis=1))
+                    test_inverse_slice = scalar_model.inverse_transform(np.expand_dims(label_array[pre_slice,:], axis=1))
+                    pre_inverse.append(pre_inverse_slice)
+                    test_inverse.append(test_inverse_slice)
+                pre_array_final = np.array(pre_inverse).squeeze(axis=-1)
+                test_labels_final = np.array(test_inverse).squeeze(axis=-1)
+            
+            elif features_num > 1:
+                if isinstance(pre_array, np.ndarray):
+                    pre_array = torch.from_numpy(pre_array)
+                # 这里的 test_labels 是之前拆分出来的 Tensor
+                for pre_slice in range(pre_array.shape[0]):
+                    pre_inverse_slice = scalar_model.inverse_transform(torch.cat((torch.zeros(pre_array[0].shape[0], features_num-1), torch.unsqueeze(pre_array[pre_slice], dim=1)), 1))[:, -1]
+                    test_inverse_slice = scalar_model.inverse_transform(torch.cat((torch.zeros(test_labels[0].shape[0], features_num-1), torch.unsqueeze(test_labels[pre_slice], dim=1)), 1))[:, -1]
+                    pre_inverse.append(pre_inverse_slice)
+                    test_inverse.append(test_inverse_slice)
+                pre_array_final = np.array(pre_inverse)
+                test_labels_final = np.array(test_inverse)
+            
+            else:
+                for pre_slice in range(pre_array.shape[0]):
+                    pre_inverse_slice = scalar_model.inverse_transform(np.expand_dims(pre_array[pre_slice,:], axis=1))
+                    test_inverse_slice = scalar_model.inverse_transform(np.expand_dims(label_array[pre_slice,:], axis=1))
+                    pre_inverse.append(pre_inverse_slice)
+                    test_inverse.append(test_inverse_slice)
+                pre_array_final = np.array(pre_inverse).squeeze(axis=-1)
+                test_labels_final = np.array(test_inverse).squeeze(axis=-1)
 
-            for i in range(pre_array.shape[0]):
-                pre_inv = scalar_model.inverse_transform(
-                    np.expand_dims(pre_array[i,:], axis=1)
-                )
-                test_inv = scalar_model.inverse_transform(
-                    np.expand_dims(label_array[i,:], axis=1)
-                )
-
-                pre_inverse.append(pre_inv)
-                test_inverse.append(test_inv)
-
-            pre_array = np.array(pre_inverse).squeeze()
-            test_labels_np = np.array(test_inverse).squeeze()
-
-        else:
-            test_labels_np = label_array.numpy()
-
-        # ======== 指标 ========
-        MSE_l = mean_squared_error(test_labels_np, pre_array)
-        MAE_l = mean_absolute_error(test_labels_np, pre_array)
-        MAPE_l = mean_absolute_percentage_error(test_labels_np, pre_array)
-        R2 = r2_score(test_labels_np, pre_array)
-
+        # ======== 指标计算（统一使用 _final 结尾的变量） ========
+        MSE_l = mean_squared_error(test_labels_final, pre_array_final)
+        MAE_l = mean_absolute_error(test_labels_final, pre_array_final)
+        MAPE_l = mean_absolute_percentage_error(test_labels_final, pre_array_final)
+        R2 = r2_score(test_labels_final, pre_array_final)
+        
         print(f"MSE={MSE_l:.2f} | MAE={MAE_l:.2f} | MAPE={MAPE_l:.2f} | R^2={R2:.2f}")
-
         # ======== 保存结果（新增）=======
         results_df.loc[idx, 'mae'] = MAE_l
         results_df.loc[idx, 'mse'] = MSE_l
