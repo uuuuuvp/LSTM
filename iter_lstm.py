@@ -48,7 +48,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # 老异常值检测，插值 命名
 # output_file = f"./Exp/LSTMResult/LSTM-FulCzOt-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
 # 新异常值检测，插值一体化
-output_file = f"./Exp/LSTMResult/FulOltPlt-{Otl_Plt_M}-{threshold}-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+output_file = f"./Exp/LSTMResult/FulOltPltMMAPE-{Otl_Plt_M}-{threshold}-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
 # 测试
 # output_file = f"./Exp/LSTMResult/cs_cz_{features_num}_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
 
@@ -56,6 +56,7 @@ lines_df = pd.read_csv(input_file)
 
 results_df = lines_df.copy()
 results_df['mae'], results_df['mse'], results_df['mape'], results_df['r2'], results_df['status']= None, None, None, None, None
+# results_df['mae'], results_df['mse'], results_df['mape'], results_df['safe_mape'], results_df['r2'], results_df['status']= None, None, None, None, None, None
 
 if output_length > 1:
     forecasting_model = 'multi_steps'
@@ -100,7 +101,7 @@ for idx, row in results_df.iterrows():
         #     df[target_value] = df[target_value].interpolate(method='linear')
         #     df[target_value] = df[target_value].bfill().ffill()
         
-        df, outlier_rate = Otl_Plt(df, target_col=target_value, method=Otl_Plt_M, threshold=threshold, lag=lag_points, limit=limit)
+        df, outlier_rate = Otl_Plt(df, target_col=target_value, method=Otl_Plt_M, threshold=threshold, lag=lag_points, limit=limit, outlier_flag=outlier_flag,interpolation=interpolation)
         
         if features_num > 1:
             df['timestamp'] = df['timestamp'].str.replace('国调_', '')
@@ -281,13 +282,15 @@ for idx, row in results_df.iterrows():
         MSE_l = mean_squared_error(test_labels_final, pre_array_final)
         MAE_l = mean_absolute_error(test_labels_final, pre_array_final)
         MAPE_l = mean_absolute_percentage_error(test_labels_final, pre_array_final)
+        MMAPE_l = Mmape(test_labels_final, pre_array_final)
         R2 = r2_score(test_labels_final, pre_array_final)
         
-        print(f"MSE={MSE_l:.2f} | MAE={MAE_l:.2f} | MAPE={MAPE_l:.2f} | R^2={R2:.2f}")
+        print(f"MSE={MSE_l:.2f} | MAE={MAE_l:.2f} | MAPE={MAPE_l:.2f} | safeMAPE={MMAPE_l:.2f} | R^2={R2:.2f}")
         # ======== 保存结果（新增）=======
         results_df.loc[idx, 'mae'] = MAE_l
         results_df.loc[idx, 'mse'] = MSE_l
-        results_df.loc[idx, 'mape'] = MAPE_l
+        results_df.loc[idx, 'mape'] = MMAPE_l
+        # results_df.loc[idx, 'safe_mape'] = safe_MAPE_l
         results_df.loc[idx, 'r2'] = R2
         results_df.loc[idx, 'status'] = 'success'
 
