@@ -109,3 +109,21 @@ def Mmape(y_true, y_pred, threshold_ratio=0.05):
         mape = mean_absolute_percentage_error(y_true + 1e-6, y_pred + 1e-6)
 
     return mape
+
+
+def f_outlier(df, target_value, outlier_flag=True, threshold=3.0):
+    if outlier_flag:
+        _mean = df[target_value].mean()
+        _std = df[target_value].std()
+        upper_limit = _mean + threshold * _std
+        lower_limit = _mean - threshold * _std
+        # 将异常值标记为 nan，交给后面的 interpolate 处理
+        df.loc[(df[target_value] > upper_limit) | (df[target_value] < lower_limit), target_value] = np.nan
+
+def f_interpolation(df, target_value, interpolation=True):
+    if interpolation:
+        df[target_value] = df[target_value].replace(0, np.nan)
+        df[target_value] = df[target_value].interpolate(method='linear')
+        df[target_value] = df[target_value].bfill().ffill()
+    else:
+        pass

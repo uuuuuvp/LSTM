@@ -8,7 +8,7 @@ import yaml
 from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error, mean_squared_error, r2_score
 from torch.utils.data import DataLoader, TensorDataset
 
-config_file = "Exp/ConfigPara/lstm_IP_800_4_1.yaml"
+config_file = "Exp/ConfigPara/lstm_hour.yaml"
 with open(config_file, 'r', encoding='utf-8') as f:
     config = yaml.safe_load(f)
 
@@ -48,7 +48,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # 老异常值检测，插值 命名
 # output_file = f"./Exp/LSTMResult/LSTM-FulCzOt-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
 # 新异常值检测，插值一体化
-output_file = f"./Exp/LSTMResult/FulOltPltMMAPE-{Otl_Plt_M}-{threshold}-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+output_file = f"./Exp/LSTMResult/FulOltPltMMAPE_ES-L{loss_function}E{epochs}B{batch_size}R{learning_rate}{Otl_Plt_M}-{threshold}-{features_num}-{target_value}L{interval_length}I{input_length}O{output_length}.csv"
 # 测试
 # output_file = f"./Exp/LSTMResult/cs_cz_{features_num}_{target_value}_{interval_length}_{input_length}_{output_length}.csv"
 
@@ -87,19 +87,8 @@ for idx, row in results_df.iterrows():
             results_df.loc[idx, 'status'] = 'too_short'
             continue
         
-        # 异常值检测，3-Sigma
-        # if outlier_flag:
-        #     _mean = df[target_value].mean()
-        #     _std = df[target_value].std()
-        #     upper_limit = _mean + 3 * _std
-        #     lower_limit = _mean - 3 * _std
-        #     # 将异常值标记为 nan，交给后面的 interpolate 处理
-        #     df.loc[(df[target_value] > upper_limit) | (df[target_value] < lower_limit), target_value] = np.nan
-
-        # if interpolation:
-        #     df[target_value] = df[target_value].replace(0, np.nan)
-        #     df[target_value] = df[target_value].interpolate(method='linear')
-        #     df[target_value] = df[target_value].bfill().ffill()
+        # f_outlier(df, target_value=target_value, threshold=threshold, outlier_flag=outlier_flag)
+        # f_interpolation(df, target_value=target_value, interpolation=interpolation)
         
         df, outlier_rate = Otl_Plt(df, target_col=target_value, method=Otl_Plt_M, threshold=threshold, lag=lag_points, limit=limit, outlier_flag=outlier_flag,interpolation=interpolation)
         
@@ -192,7 +181,8 @@ for idx, row in results_df.iterrows():
 
         if loss_function == 'MSE':
             loss_func = nn.MSELoss(reduction='mean')
-
+        elif loss_function == 'Huber':
+            loss_func = nn.HuberLoss(delta=1.0)
         
         optimizer = torch.optim.AdamW(
             LSTMMain_model.parameters(),
@@ -203,7 +193,12 @@ for idx, row in results_df.iterrows():
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, epochs//3, eta_min=0.00001
         )
-
+        
+        patience =  10         # 如果连续7个epoch验证集损失不下降，则停止
+        patience_counter = 0
+        best_val_loss = float('inf')
+        save_path = f'./weights/{line_name}_lstm.pth'
+        
         print("Training Starts")
         for epoch in range(epochs):
             LSTMMain_model.train()
@@ -220,9 +215,36 @@ for idx, row in results_df.iterrows():
                 train_loss_sum += loss.item()
 
             scheduler.step()
+            
+            # --- 验证阶段 (早停逻辑核心) ---
+            LSTMMain_model.eval()
+            val_loss_sum = 0
+            with torch.no_grad():
+                for val_feat, val_label in val_Loader:
+                    val_feat = val_feat.permute(0, 2, 1)
+                    val_pred = LSTMMain_model(val_feat)
+                    v_loss = loss_func(val_pred, val_label)
+                    val_loss_sum += v_loss.item()
+            
+            # 平均验证损失（按Batch平均）
+            avg_val_loss = val_loss_sum / len(val_Loader)
+            
+# --- 早停判定 ---
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                # 只有验证集表现更好时，才保存权重
+                torch.save(LSTMMain_model.state_dict(), save_path)
+                patience_counter = 0  # 重置计数器
+                # print(f"Epoch {epoch}: Val loss improved to {best_val_loss:.6f}, saving model...")
+            else:
+                patience_counter += 1
+                # print(f"Epoch {epoch}: Val loss did not improve. Counter: {patience_counter}/{patience}")
 
+            if patience_counter >= patience:
+                print(f"Early stopping triggered at epoch {epoch}. Best Val Loss: {best_val_loss:.6f}")
+                break # 跳出当前线路的 epoch 循环
+        
         # ======== 保存权重（防覆盖）=======
-        save_path = f'./weights/{line_name}_lstm.pth'
         torch.save(LSTMMain_model.state_dict(), save_path)
 
         # ======== 测试 ========
