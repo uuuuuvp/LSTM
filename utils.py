@@ -109,3 +109,40 @@ def Mmape(y_true, y_pred, threshold_ratio=0.05):
         mape = mean_absolute_percentage_error(y_true + 1e-6, y_pred + 1e-6)
 
     return mape
+
+
+def f_outlier(df, target_value, outlier_flag=True, threshold=3.0, method='sigma'):
+    if outlier_flag:
+        data = df[target_value]
+        if method == 'sigma':
+            _mean = data.mean()
+            _std = data.std()
+            upper_limit = _mean + threshold * _std
+            lower_limit = _mean - threshold * _std    
+        elif method == 'mad':
+            median = data.median()
+            mad = np.median(np.abs(data - median))
+            # 避免mad为0导致除法问题
+            if mad == 0:
+                mad = data.std()
+            lower_limit = median - threshold * mad
+            upper_limit = median + threshold * mad
+        elif method == 'iqr':
+            Q1 = data.quantile(0.25)
+            Q3 = data.quantile(0.75)
+            IQR = Q3 - Q1
+            # threshold 作为 IQR 的乘数，默认 1.5 是轻度，3.0 是重度
+            lower_limit = Q1 - threshold * IQR
+            upper_limit = Q3 + threshold * IQR
+        else:
+            raise ValueError("Unsupported method. Choose 'sigma', 'mad', or 'iqr'.")
+        df.loc[(data > upper_limit) | (data < lower_limit), target_value] = np.nan
+    return df
+
+def f_interpolation(df, target_value, interpolation=True):
+    if interpolation:
+        df[target_value] = df[target_value].replace(0, np.nan)
+        df[target_value] = df[target_value].interpolate(method='linear')
+        df[target_value] = df[target_value].bfill().ffill()
+    else:
+        pass
