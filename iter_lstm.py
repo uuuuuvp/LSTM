@@ -55,7 +55,14 @@ exp_id = (
     f"E{epochs}_lr{lr_str}_f{features_num}_I{input_length}O{output_length}"
 )
 weight_dir = os.path.join("./weights", exp_id)
-os.makedirs(weight_dir, exist_ok=True)
+try:
+    os.makedirs(weight_dir, exist_ok=False)
+    print(f"✅ 成功创建新实验文件夹: {weight_dir}")
+except FileExistsError:
+    # 触发你想要的 RaiseError，并给出明确提示
+    print(f"\n❌ [拒绝执行] 实验文件夹已存在: {weight_dir}")
+    print("原因：该参数组合已经训练过。如果想重新跑，请手动删除该文件夹或修改参数。")
+    raise FileExistsError(f"实验 {exp_id} 已存在，请检查配置或清理旧数据。")
 
 output_file = (
     f"E:\\Downloads\\基于LSTM时间序列预测\\基于LSTM时间序列预测\\LSTM\\Exp\\LSTMResult\\"
@@ -68,6 +75,7 @@ output_file = (
     f"I{input_length}O{output_length}"   # 输入输出窗
     f".csv"
 )
+# output_file = os.path.join("E:\\Downloads\\基于LSTM时间序列预测\\基于LSTM时间序列预测\\LSTM\\Exp\\LSTMResult", f"Res_{exp_id}.csv")
 # 新异常值检测，插值一体化
 # output_file = f"./Exp/LSTMResult/FulOltPltMMAPE_Huber-E{epochs}R{learning_rate}{Otl_Plt_M}-{threshold}-{features_num}dim{dim}Num{num_blocks}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
 # 测试
