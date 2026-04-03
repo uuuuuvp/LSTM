@@ -47,7 +47,27 @@ input_file = config['paths']['input_file']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # 老异常值检测，插值 命名
-output_file = f"E:\Downloads\基于LSTM时间序列预测\基于LSTM时间序列预测\LSTM\Exp\LSTMResult\LSTM-Fulfl-{loss_function}{loss_para}-{Otl_Plt_M}{threshold}E{epochs}R{learning_rate}f{features_num}{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+lr_str = f"{learning_rate:.0e}".replace("e-0", "e")
+
+exp_id = (
+    f"D{dim}B{num_blocks}_bs{batch_size}_"
+    f"{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_"
+    f"E{epochs}_lr{lr_str}_f{features_num}_I{input_length}O{output_length}"
+)
+weight_dir = os.path.join("./weights", exp_id)
+os.makedirs(weight_dir, exist_ok=True)
+
+output_file = (
+    f"E:\\Downloads\\基于LSTM时间序列预测\\基于LSTM时间序列预测\\LSTM\\Exp\\LSTMResult\\"
+    f"LSTM_D{dim}B{num_blocks}_"         # 模型维度与层数
+    f"bs{batch_size}_"                   # Batch Size
+    f"{loss_function}{loss_para}_"       # 损失函数与参数
+    f"{Otl_Plt_M}{threshold}_"           # 异常值阈值
+    f"E{epochs}_lr{lr_str}_"             # 轮次与学习率
+    f"f{features_num}_"                  # 特征数
+    f"I{input_length}O{output_length}"   # 输入输出窗
+    f".csv"
+)
 # 新异常值检测，插值一体化
 # output_file = f"./Exp/LSTMResult/FulOltPltMMAPE_Huber-E{epochs}R{learning_rate}{Otl_Plt_M}-{threshold}-{features_num}dim{dim}Num{num_blocks}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
 # 测试
@@ -68,6 +88,7 @@ else:
 # ================== 批处理循环（新增） ==================
 for idx, row in results_df.iterrows():
     line_name = row['line_name']
+    save_path = os.path.join(weight_dir, f"{line_name}.pth") # 线路权重文件路径
     print(f"\n[{idx+1}/{len(results_df)}] 处理: {line_name}")
 
     file_name = os.path.join(data_directory, line_name + ".csv")
@@ -225,7 +246,7 @@ for idx, row in results_df.iterrows():
             scheduler.step()
 
         # ======== 保存权重（防覆盖）=======
-        save_path = f'./weights/{line_name}_lstm.pth'
+        # save_path = f'./weights/{line_name}_lstm.pth'     # 前面设置了
         torch.save(LSTMMain_model.state_dict(), save_path)
 
         # ======== 测试 ========
@@ -301,6 +322,11 @@ for idx, row in results_df.iterrows():
         results_df.loc[idx, 'mape'] = MAPE_l
         results_df.loc[idx, 'Mmape'] = MMAPE_l
         # results_df.loc[idx, 'safe_mape'] = safe_MAPE_l
+        avg_train_loss = train_loss_sum / len(train_Loader)
+        avg_val_loss = val_loss_sum / len(val_Loader)
+        results_df.loc[idx, 'train_loss'] = avg_train_loss
+        results_df.loc[idx, 'val_loss'] = avg_val_loss
+        results_df.loc[idx, 'loss_diff'] = avg_val_loss - avg_train_loss
         results_df.loc[idx, 'r2'] = R2
         results_df.loc[idx, 'status'] = 'success'
 
