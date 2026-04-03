@@ -8,11 +8,12 @@ import yaml
 from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error, mean_squared_error, r2_score
 from torch.utils.data import DataLoader, TensorDataset
 start = time.time()
-config_file = "E:\Downloads\基于LSTM时间序列预测\基于LSTM时间序列预测\LSTM\Exp\ConfigPara\lstm_hour.yaml"
+config_file = "E:\Downloads\基于LSTM时间序列预测\基于LSTM时间序列预测\LSTM\Exp\ConfigPara\lstm_day.yaml"
 with open(config_file, 'r', encoding='utf-8') as f:
     config = yaml.safe_load(f)
 
 day_flag = config['data_split']['day_flag']
+sampling_method = config['data_split']['sampling_method']
 train_ratio = config['data_split']['train_ratio']
 val_ratio = config['data_split']['val_ratio']
 test_ratio = config['data_split']['test_ratio']
@@ -27,7 +28,6 @@ loss_function = config['training']['loss_function']
 learning_rate = config['training']['optimizer']['learning_rate']
 weight_decay = config['training']['optimizer']['weight_decay']
 loss_para = config['training']['loss_para']
-
 num_blocks = config['model']['num_blocks']
 dim = config['model']['dim']
 
@@ -47,7 +47,7 @@ input_file = config['paths']['input_file']
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # 老异常值检测，插值 命名
-output_file = f"E:\Downloads\基于LSTM时间序列预测\基于LSTM时间序列预测\LSTM\Exp\LSTMResult\LSTM-Fulfl-{loss_function}{loss_para}-{Otl_Plt_M}{threshold}E{epochs}R{learning_rate}f{features_num}{target_value}-{interval_length}-{input_length}-{output_length}.csv"
+output_file = f"E:\Downloads\基于LSTM时间序列预测\基于LSTM时间序列预测\LSTM\Exp\LSTMResult\day\Fulf-d{dim}b{num_blocks}{sampling_method}Hb{loss_para}-{threshold}{Otl_Plt_M}E{epochs}R{learning_rate}-{features_num}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
 # 新异常值检测，插值一体化
 # output_file = f"./Exp/LSTMResult/FulOltPltMMAPE_Huber-E{epochs}R{learning_rate}{Otl_Plt_M}-{threshold}-{features_num}dim{dim}Num{num_blocks}-{target_value}-{interval_length}-{input_length}-{output_length}.csv"
 # 测试
@@ -58,7 +58,6 @@ lines_df = pd.read_csv(input_file)
 results_df = lines_df.copy()
 results_df['mae'], results_df['mse'], results_df['mape'], results_df['Mmape'], results_df['r2'], results_df['status']= None, None, None, None, None, None
 # results_df['mae'], results_df['mse'], results_df['mape'], results_df['safe_mape'], results_df['r2'], results_df['status']= None, None, None, None, None, None
-results_df['train_loss'], results_df['val_loss'], results_df['loss_diff'] = None, None, None
 
 if output_length > 1:
     forecasting_model = 'multi_steps'
@@ -94,8 +93,12 @@ for idx, row in results_df.iterrows():
         
         # df, outlier_rate = Otl_Plt(df, target_col=target_value, method=Otl_Plt_M, threshold=threshold, lag=lag_points, limit=limit, outlier_flag=outlier_flag,interpolation=interpolation)
         
+        if day_flag:
+            df = resample_to_daily(df, target_value, method=sampling_method)
+            print(f"天采样完成: {len(df)} 天数据，采样方法={sampling_method}")
+        
         if features_num > 1:
-            df['timestamp'] = df['timestamp'].str.replace('国调_', '')
+            # df['timestamp'] = df['timestamp'].str.replace('国调_', '')
             df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y%m%d_%H%M')
             df['hour'] = df['timestamp'].dt.hour
             df['weekday'] = df['timestamp'].dt.weekday
@@ -193,9 +196,8 @@ for idx, row in results_df.iterrows():
             weight_decay=weight_decay
         )
 
-        # 这样设置：学习率会从 0.01 平滑降至 0.00001，帮助模型在后期精细收敛
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=epochs, eta_min=0.00001
+            optimizer, epochs//3, eta_min=0.00001
         )
 
         print("Training Starts")
@@ -212,15 +214,6 @@ for idx, row in results_df.iterrows():
                 torch.nn.utils.clip_grad_norm_(LSTMMain_model.parameters(), 0.15)
                 optimizer.step()
                 train_loss_sum += loss.item()
-
-            # 每个 epoch 结束跑一次验证集损失
-            LSTMMain_model.eval()
-            val_loss_sum = 0
-            with torch.no_grad():
-                for v_feat, v_label in val_Loader:
-                    v_feat = v_feat.permute(0, 2, 1)
-                    v_pred = LSTMMain_model(v_feat)
-                    val_loss_sum += loss_func(v_pred, v_label).item()
 
             scheduler.step()
 
@@ -266,7 +259,7 @@ for idx, row in results_df.iterrows():
                 # 这里的 test_labels 是之前拆分出来的 Tensor
                 for pre_slice in range(pre_array.shape[0]):
                     pre_inverse_slice = scalar_model.inverse_transform(torch.cat((torch.zeros(pre_array[0].shape[0], features_num-1), torch.unsqueeze(pre_array[pre_slice], dim=1)), 1))[:, -1]
-                    test_inverse_slice = scalar_model.inverse_transform(torch.cat((torch.zeros(label_array[0].shape[0], features_num-1), torch.unsqueeze(test_labels[pre_slice], dim=1)), 1))[:, -1]
+                    test_inverse_slice = scalar_model.inverse_transform(torch.cat((torch.zeros(test_labels[0].shape[0], features_num-1), torch.unsqueeze(test_labels[pre_slice], dim=1)), 1))[:, -1]
                     pre_inverse.append(pre_inverse_slice)
                     test_inverse.append(test_inverse_slice)
                 pre_array_final = np.array(pre_inverse)
@@ -281,12 +274,22 @@ for idx, row in results_df.iterrows():
                 pre_array_final = np.array(pre_inverse).squeeze(axis=-1)
                 test_labels_final = np.array(test_inverse).squeeze(axis=-1)
         else:
-            pre_array_final = pre_array.numpy() if torch.is_tensor(pre_array) else pre_array
-            test_labels_final = label_array.numpy() if torch.is_tensor(label_array) else label_array
+            # 没有使用归一化，或者 scalar_contain_labels 为 false
+            # 直接使用原始值
+            pre_array_final = pre_array
+            test_labels_final = label_array
+            # 确保是一维数组
+            if isinstance(pre_array_final, torch.Tensor):
+                pre_array_final = pre_array_final.cpu().numpy()
+            if isinstance(test_labels_final, torch.Tensor):
+                test_labels_final = test_labels_final.cpu().numpy()
+            
+            # 如果是多维数组，展平
+            if len(pre_array_final.shape) > 1:
+                pre_array_final = pre_array_final.flatten()
+            if len(test_labels_final.shape) > 1:
+                test_labels_final = test_labels_final.flatten()
 
-        pre_array_final = np.array(pre_array_final).flatten()
-        test_labels_final = np.array(test_labels_final).flatten()
-        
         # ======== 指标计算（统一使用 _final 结尾的变量） ========
         MSE_l = mean_squared_error(test_labels_final, pre_array_final)
         MAE_l = mean_absolute_error(test_labels_final, pre_array_final)

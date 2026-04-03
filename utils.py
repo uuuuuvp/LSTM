@@ -146,3 +146,96 @@ def f_interpolation(df, target_value, interpolation=True):
         df[target_value] = df[target_value].bfill().ffill()
     else:
         pass
+
+def resample_to_daily(df, target_value, method='hour_14'):
+    """
+    将12点/天的数据降采样到1点/天
+    自动处理 '国调_20230801_0000' 格式
+    """
+    # 复制一份，避免修改原df
+    df = df.copy()
+    
+    # 处理timestamp列
+    if 'timestamp' in df.columns:
+        # 如果是字符串类型
+        if df['timestamp'].dtype == 'object':
+            # 去掉 '国调_' 前缀
+            df['timestamp'] = df['timestamp'].str.replace('国调_', '')
+            # 转换为datetime，指定格式（这就是你要的功能）
+            df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y%m%d_%H%M', errors='coerce')
+        else:
+            # 已经是datetime，确保格式正确
+            if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                df['timestamp'] = pd.to_datetime(df['timestamp'], format='%Y%m%d_%H%M', errors='coerce')
+    
+    # 删除解析失败的行
+    df = df.dropna(subset=['timestamp'])
+    
+    if len(df) == 0:
+        raise ValueError("没有有效的timestamp数据")
+    
+    # 提取日期和小时
+    df['date'] = df['timestamp'].dt.date
+    df['hour'] = df['timestamp'].dt.hour
+    
+    if method == 'mean':
+        df_daily = df.groupby('date')[target_value].mean().reset_index()
+    elif method == 'max':
+        df_daily = df.groupby('date')[target_value].max().reset_index()
+    elif method == 'min':
+        df_daily = df.groupby('date')[target_value].min().reset_index()
+    elif method.startswith('hour_'):
+        target_hour = int(method.split('_')[1])
+        df_daily = df[df['hour'] == target_hour][['date', target_value]].copy()
+    else:
+        raise ValueError(f"Unknown method: {method}")
+    
+    df_daily = df_daily.reset_index(drop=True)
+    # 将date转回timestamp格式（datetime类型）
+    df_daily['timestamp'] = pd.to_datetime(df_daily['date'])
+    df_daily = df_daily.drop('date', axis=1)
+    
+    return df_daily
+
+def read_data_from_csv(file_name, column_name='I_P', train_points=1600, forecast_horizon=12, sigma_threshold=3):
+    """
+    读取数据，用最后train_points个点训练，预测紧接着的forecast_horizon个点
+    
+    Parameters:
+    file_name: CSV文件名
+    column_name: 列名
+    train_points: 用于训练的数据点数（默认500）
+    forecast_horizon: 预测的点数（默认12）
+    sigma_threshold: 3σ阈值
+    """
+    # 1. 读取数据
+    data = pd.read_csv(file_name)
+    column_data = data[column_name].values
+    
+    # 2. 确保数据长度是12的倍数
+    column_data = column_data[:(len(column_data)//12)*12]
+    # print(f"原始数据总长度: {len(column_data)}")
+    
+    # 3. 3σ异常值检测和处理
+    # mean = np.mean(column_data)
+    # std = np.std(column_data)
+    # lower_bound = mean - sigma_threshold * std
+    # upper_bound = mean + sigma_threshold * std
+    # column_data = np.clip(column_data, lower_bound, upper_bound)
+    
+    # 4. 取最后的数据用于训练和测试
+    # 需要的数据总量 = 训练点 + 预测点
+    total_needed = train_points + forecast_horizon
+    if len(column_data) < total_needed:
+        # print(f"警告：数据长度({len(column_data)})不足所需的{total_needed}个点")
+        # 如果数据不足，用全部数据
+        recent_data = column_data
+    else:
+        # 取最后total_needed个点
+        recent_data = column_data[-total_needed:]
+    
+    # 5. 划分训练集和测试集
+    train_raw = recent_data[:train_points]  # 前train_points个点用于训练
+    test_raw = recent_data[train_points:]   # 后forecast_horizon个点用于测试
+
+    return train_raw, test_raw
