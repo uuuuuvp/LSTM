@@ -20,7 +20,7 @@ threshold = 3
 
 # ARIMA 参数范围（bic 通常比 aic 更倾向于简单模型，防止过拟合）
 criterion = 'bic' 
-output_file = f"arima-{criterion}I{train_points}F{forecast_horizon}{column_name}.csv"
+output_file = f"arima-yj-{criterion}I{train_points}F{forecast_horizon}{column_name}.csv"
 
 # ================== 读取数据与初始化 ==================
 lines_df = pd.read_csv(input_file)
@@ -59,10 +59,16 @@ for idx, row in results_df.iterrows():
         model = auto_arima(
             train_transformed,
             seasonal=True, m=12,
+            start_p=0, max_p=5,    # 增加搜索深度，默认通常是 5
+            start_q=0, max_q=5,    # 增加搜索深度
+            max_d=2,               # 差分通常 1 或 2 就够了
+            start_P=0, max_P=2,    # 季节性 AR 阶数
+            start_Q=0, max_Q=2,    # 季节性 MA 阶数
             information_criterion=criterion,
+            stepwise=True,         # 使用启发式搜索，速度快
+            n_jobs=-1,             # 如果数据多，可以尝试并行计算
             suppress_warnings=True,
-            error_action='ignore',
-            stepwise=True
+            error_action='ignore'
         )
         
         # 3. 预测未来 12 个点
