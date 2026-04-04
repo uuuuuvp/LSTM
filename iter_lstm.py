@@ -54,7 +54,7 @@ exp_id = (
     f"D{dim}B{num_blocks}_bs{batch_size}_"
     f"{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_"
     f"E{epochs}_lr{lr_str}_f{features_num}_I{input_length}O{output_length}"
-    f"_C{clip_v}"
+    f"_C{clip_v}_rmT-MAX"
 )
 weight_dir = os.path.join("./weights", exp_id)
 
@@ -231,7 +231,7 @@ for idx, row in results_df.iterrows():
 
         # 这样设置：学习率会从 0.01 平滑降至 0.00001，帮助模型在后期精细收敛
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=epochs, eta_min=0.00001
+            optimizer, epochs//3, eta_min=0.00001
         )
 
         print("Training Starts")
