@@ -27,6 +27,7 @@ loss_function = config['training']['loss_function']
 learning_rate = config['training']['optimizer']['learning_rate']
 weight_decay = config['training']['optimizer']['weight_decay']
 loss_para = config['training']['loss_para']
+clip_v = config['training']['clip_v']
 
 num_blocks = config['model']['num_blocks']
 dim = config['model']['dim']
@@ -53,16 +54,21 @@ exp_id = (
     f"D{dim}B{num_blocks}_bs{batch_size}_"
     f"{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_"
     f"E{epochs}_lr{lr_str}_f{features_num}_I{input_length}O{output_length}"
+    f"_C{clip_v}"
 )
 weight_dir = os.path.join("./weights", exp_id)
-try:
-    os.makedirs(weight_dir, exist_ok=False)
-    print(f"✅ 成功创建新实验文件夹: {weight_dir}")
-except FileExistsError:
-    # 触发你想要的 RaiseError，并给出明确提示
-    print(f"\n❌ [拒绝执行] 实验文件夹已存在: {weight_dir}")
-    print("原因：该参数组合已经训练过。如果想重新跑，请手动删除该文件夹或修改参数。")
-    raise FileExistsError(f"实验 {exp_id} 已存在，请检查配置或清理旧数据。")
+
+# 检查文件夹是否已存在
+if os.path.exists(weight_dir):
+    print(f"\n⏭️ [跳过] 实验 {exp_id} 已存在，跳过训练")
+    print(f"文件夹: {weight_dir}")
+    # 直接退出，返回特殊状态码
+    import sys
+    sys.exit(2)  # 使用状态码2表示"跳过"
+    
+# 不存在则创建
+os.makedirs(weight_dir, exist_ok=False)
+print(f"✅ 成功创建新实验文件夹: {weight_dir}")
 
 output_file = (
     f"E:\\Downloads\\基于LSTM时间序列预测\\基于LSTM时间序列预测\\LSTM\\Exp\\LSTMResult\\"
@@ -73,6 +79,7 @@ output_file = (
     f"E{epochs}_lr{lr_str}_"             # 轮次与学习率
     f"f{features_num}_"                  # 特征数
     f"I{input_length}O{output_length}"   # 输入输出窗
+    f"_C{clip_v}"
     f".csv"
 )
 # output_file = os.path.join("E:\\Downloads\\基于LSTM时间序列预测\\基于LSTM时间序列预测\\LSTM\\Exp\\LSTMResult", f"Res_{exp_id}.csv")
@@ -238,7 +245,7 @@ for idx, row in results_df.iterrows():
                 prediction = LSTMMain_model(feature_)
                 loss = loss_func(prediction, label_)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(LSTMMain_model.parameters(), 0.15)
+                torch.nn.utils.clip_grad_norm_(LSTMMain_model.parameters(), clip_v)  # 梯度裁剪，防止爆炸
                 optimizer.step()
                 train_loss_sum += loss.item()
 
