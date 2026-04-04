@@ -13,10 +13,10 @@ warnings.filterwarnings("ignore")
 data_directory = "E:/data/output_lines_0-6/"
 input_file = "E:\\code\\mission\\full_sampled_lines.csv"
 column_name = 'I_P'
-train_points = 800
-forecast_horizon = 12  # 依然在测试集的 12 个点上比，但是是一个一个测
+train_points = 1600
+forecast_horizon = 160  # 依然在测试集的 12 个点上比，但是是一个一个测
 criterion = 'bic' 
-output_file = f"arima-rolling-oneStep-{criterion}.csv"
+output_file = f"arima-rolling-oneStep-{criterion}-L{train_points}.csv"
 
 # ================== 读取数据与初始化 ==================
 lines_df = pd.read_csv(input_file)
