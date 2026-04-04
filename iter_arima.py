@@ -12,92 +12,81 @@ warnings.filterwarnings("ignore")
 # ================== 参数设置 ==================
 data_directory = "E:/data/output_lines_0-6/"
 input_file = "E:\\code\\mission\\full_sampled_lines.csv"
-column_name = 'I_P'  # 保持与 LSTM 实验一致
+column_name = 'I_P'
 train_points = 800
-forecast_horizon = 12
-Otl_Plt_M = 'sigma'
-threshold = 3
-
-# ARIMA 参数范围（bic 通常比 aic 更倾向于简单模型，防止过拟合）
+forecast_horizon = 12  # 依然在测试集的 12 个点上比，但是是一个一个测
 criterion = 'bic' 
-output_file = f"arima-yj-{criterion}I{train_points}F{forecast_horizon}{column_name}.csv"
+output_file = f"arima-rolling-oneStep-{criterion}.csv"
 
 # ================== 读取数据与初始化 ==================
 lines_df = pd.read_csv(input_file)
 results_df = lines_df.copy()
-
-# 统一指标列名，方便对比
 for col in ['mae', 'mse', 'mape', 'r2', 'p', 'd', 'q', 'status']:
     results_df[col] = None
 
 # ================== 循环处理每条线路 ==================
 for idx, row in results_df.iterrows():
     line_name = row['line_name']
-    print(f"\n[{idx+1}/{len(results_df)}] ARIMA 对标测试: {line_name}")
+    print(f"\n[{idx+1}/{len(results_df)}] ARIMA 单步滚动测试: {line_name}")
     
     file_path = os.path.join(data_directory, line_name + '.csv')
-    
-    if not os.path.exists(file_path):
-        results_df.loc[idx, 'status'] = 'file_not_found'
-        continue
+    if not os.path.exists(file_path): continue
     
     try:
-        # 1. 使用你提供的函数读取数据
+        # 1. 读取数据
         train, test = read_data_from_csv(
-            file_name=file_path,
-            column_name=column_name,
-            train_points=train_points,
-            forecast_horizon=forecast_horizon,
-            sigma_threshold=threshold
+            file_name=file_path, column_name=column_name,
+            train_points=train_points, forecast_horizon=forecast_horizon,
+            sigma_threshold=3
         )
         
+        # 2. 初始训练（寻找最优参数 p,d,q）
         pt = PowerTransformer(method='yeo-johnson')
         train_transformed = pt.fit_transform(train.reshape(-1, 1)).flatten()
         
-        # 2. 自动寻找最优 ARIMA 模型
-        # m=12 代表季节性周期（一天12个点，每2小时一个点）
-        model = auto_arima(
-            train_transformed,
-            seasonal=True, m=12,
-            start_p=0, max_p=5,    # 增加搜索深度，默认通常是 5
-            start_q=0, max_q=5,    # 增加搜索深度
-            max_d=2,               # 差分通常 1 或 2 就够了
-            start_P=0, max_P=2,    # 季节性 AR 阶数
-            start_Q=0, max_Q=2,    # 季节性 MA 阶数
+        # 先找一次最优阶数
+        stepwise_model = auto_arima(
+            train_transformed, seasonal=True, m=12,
             information_criterion=criterion,
-            stepwise=True,         # 使用启发式搜索，速度快
-            n_jobs=-1,             # 如果数据多，可以尝试并行计算
-            suppress_warnings=True,
-            error_action='ignore'
+            suppress_warnings=True, error_action='ignore'
         )
+        p, d, q = stepwise_model.order
         
-        # 3. 预测未来 12 个点
-        # y_pred = model.predict(n_periods=forecast_horizon)
-        # 预测后必须反变换回来
-        y_pred_transformed = model.predict(n_periods=forecast_horizon)
-        y_pred = pt.inverse_transform(y_pred_transformed.reshape(-1, 1)).flatten()
+        # 3. 【核心修改】单步滚动预测循环
+        history = list(train_transformed)
+        y_pred_list = []
+        
+        # 遍历测试集的 12 个点
+        for t in range(len(test)):
+            # 使用当前已知的 history 预测下一个点
+            # 这种做法不用重训练模型，而是 update 数据，速度快且公平
+            y_hat_transformed = stepwise_model.predict(n_periods=1)[0]
+            
+            # 反变换预测值并存起来
+            y_hat = pt.inverse_transform(np.array([[y_hat_transformed]]))[0, 0]
+            y_pred_list.append(y_hat)
+            
+            # 获取当前时刻的真实值，变换后喂给模型
+            actual_transformed = pt.transform(np.array([[test[t]]]))[0, 0]
+            stepwise_model.update([actual_transformed]) # 关键：模型吃到了真值
+            
+        y_pred = np.array(y_pred_list)
         y_true = test
         
-        # 4. 调用统一指标
+        # 4. 指标计算
         mse_l = mean_squared_error(y_true, y_pred)
         mae_l = mean_absolute_error(y_true, y_pred)
         r2_l = r2_score(y_true, y_pred)
-        mape_l = Mmape(y_true, y_pred, threshold_ratio=0.05)
+        mape_l = Mmape(y_true, y_pred)
         
-        # 5. 记录参数和结果
-        p, d, q = model.order
+        # 5. 记录
         results_df.loc[idx, ['mae', 'mse', 'mape', 'r2', 'p', 'd', 'q', 'status']] = \
             [mae_l, mse_l, mape_l, r2_l, p, d, q, 'success']
         
-        print(f"   结果: R2={r2_l:.4f} | Mmape={mape_l:.4f} | Order({p},{d},{q})")
+        print(f" 结果: R2={r2_l:.4f} | Mmape={mape_l:.4f} | Order({p},{d},{q})")
         
     except Exception as e:
-        print(f"   出错: {str(e)}")
+        print(f" 出错: {str(e)}")
         results_df.loc[idx, 'status'] = f'failed: {str(e)}'
-    
-    # 进度保存
-    if (idx + 1) % 5 == 0:
-        results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
 
 results_df.to_csv(output_file, index=False, encoding='utf-8-sig')
-print("\nARIMA 结果已保存到:", output_file)
