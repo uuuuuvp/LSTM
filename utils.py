@@ -197,45 +197,98 @@ def resample_to_daily(df, target_value, method='hour_14'):
     
     return df_daily
 
-def read_data_from_csv(file_name, column_name='I_P', train_points=1600, forecast_horizon=12, sigma_threshold=3):
+# def read_data_from_csv(file_name, column_name='I_P', train_points=1600, forecast_horizon=12, sigma_threshold=3):
+#     """
+#     读取数据，用最后train_points个点训练，预测紧接着的forecast_horizon个点
+    
+#     Parameters:
+#     file_name: CSV文件名
+#     column_name: 列名
+#     train_points: 用于训练的数据点数（默认500）
+#     forecast_horizon: 预测的点数（默认12）
+#     sigma_threshold: 3σ阈值
+#     """
+#     # 1. 读取数据
+#     data = pd.read_csv(file_name)
+#     column_data = data[column_name].values
+    
+#     # 2. 确保数据长度是12的倍数
+#     column_data = column_data[:(len(column_data)//12)*12]
+#     # print(f"原始数据总长度: {len(column_data)}")
+    
+#     # 3. 3σ异常值检测和处理
+#     # mean = np.mean(column_data)
+#     # std = np.std(column_data)
+#     # lower_bound = mean - sigma_threshold * std
+#     # upper_bound = mean + sigma_threshold * std
+#     # column_data = np.clip(column_data, lower_bound, upper_bound)
+    
+#     # 4. 取最后的数据用于训练和测试
+#     # 需要的数据总量 = 训练点 + 预测点
+#     total_needed = train_points + forecast_horizon
+#     if len(column_data) < total_needed:
+#         # print(f"警告：数据长度({len(column_data)})不足所需的{total_needed}个点")
+#         # 如果数据不足，用全部数据
+#         recent_data = column_data
+#     else:
+#         # 取最后total_needed个点
+#         recent_data = column_data[-total_needed:]
+    
+#     # 5. 划分训练集和测试集
+#     train_raw = recent_data[:train_points]  # 前train_points个点用于训练
+#     test_raw = recent_data[train_points:]   # 后forecast_horizon个点用于测试
+
+#     return train_raw, test_raw
+
+def read_data_from_csv(file_name, column_name='I_P', train_points=110, forecast_horizon=28, sigma_threshold=3, resample_to_day=True):
     """
-    读取数据，用最后train_points个点训练，预测紧接着的forecast_horizon个点
+    修改版：支持小时级和天级降采样切换。
     
     Parameters:
-    file_name: CSV文件名
-    column_name: 列名
-    train_points: 用于训练的数据点数（默认500）
-    forecast_horizon: 预测的点数（默认12）
-    sigma_threshold: 3σ阈值
+    - train_points: 若降采样，则为训练天数；否则为原始点数。
+    - forecast_horizon: 若降采样，则为预测天数；否则为预测点数。
+    - resample_to_day: 是否降采样到天（每12点取均值）。
     """
     # 1. 读取数据
-    data = pd.read_csv(file_name)
-    column_data = data[column_name].values
+    df = pd.read_csv(file_name)
+    column_data = df[column_name].values
     
-    # 2. 确保数据长度是12的倍数
-    column_data = column_data[:(len(column_data)//12)*12]
-    # print(f"原始数据总长度: {len(column_data)}")
-    
-    # 3. 3σ异常值检测和处理
-    # mean = np.mean(column_data)
-    # std = np.std(column_data)
-    # lower_bound = mean - sigma_threshold * std
-    # upper_bound = mean + sigma_threshold * std
-    # column_data = np.clip(column_data, lower_bound, upper_bound)
-    
-    # 4. 取最后的数据用于训练和测试
-    # 需要的数据总量 = 训练点 + 预测点
-    total_needed = train_points + forecast_horizon
-    if len(column_data) < total_needed:
-        # print(f"警告：数据长度({len(column_data)})不足所需的{total_needed}个点")
-        # 如果数据不足，用全部数据
-        recent_data = column_data
+    # 2. 处理“不完整的一天”和降采样
+    if resample_to_day:
+        # 【关键】每12点为一个完整天。
+        # 你的第139天缺10个点，len(column_data) // 12 会自动忽略那不全的最后一天
+        num_complete_days = len(column_data) // 12
+        
+        # 仅保留完整天数的数据 (例如 138天 * 12 = 1656点)
+        complete_data = column_data[:num_complete_days * 12]
+        
+        # 降采样：计算每日平均负荷
+        # reshape(-1, 12) 将数据变为 (天数, 12)，mean(axis=1) 得到每日均值
+        column_data = complete_data.reshape(-1, 12).mean(axis=1)
+        # 此时 column_data 的长度就是 138，每个点代表一天
     else:
-        # 取最后total_needed个点
+        # 如果不降采样，你可以选择保留所有 1667 个点，或者依然保持 12 的倍数对齐
+        # 为了实验严谨，建议依然对齐到完整的天：
+        column_data = column_data[:(len(column_data)//12)*12]
+
+    # 3. 3σ 异常值检测 (建议开启，防止传感器故障点干扰模型)
+    mean_val = np.mean(column_data)
+    std_val = np.std(column_data)
+    lower_bound = mean_val - sigma_threshold * std_val
+    upper_bound = mean_val + sigma_threshold * std_val
+    column_data = np.clip(column_data, lower_bound, upper_bound)
+
+    # 4. 划分训练集和测试集
+    # 采用从后往前取的方式，保证测试集一定是最后那段最完整的时间
+    if len(column_data) < (train_points + forecast_horizon):
+        # 如果总长度不足，优先保证测试集长度，剩下的给训练
+        test_raw = column_data[-forecast_horizon:]
+        train_raw = column_data[:-forecast_horizon]
+    else:
+        # 正常取最后需要的总量
+        total_needed = train_points + forecast_horizon
         recent_data = column_data[-total_needed:]
-    
-    # 5. 划分训练集和测试集
-    train_raw = recent_data[:train_points]  # 前train_points个点用于训练
-    test_raw = recent_data[train_points:]   # 后forecast_horizon个点用于测试
+        train_raw = recent_data[:train_points]
+        test_raw = recent_data[train_points:]
 
     return train_raw, test_raw
