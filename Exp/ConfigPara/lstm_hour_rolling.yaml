@@ -1,0 +1,55 @@
+# 数据划分比例
+data_split:
+  day_flag: false
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+
+# 数据加载器配置
+dataloader:
+  batch_size: 128
+  interval_length: 1656
+  input_length: 12
+  output_length: 1
+
+# 模型配置
+model:
+  use_rolling: true
+  num_blocks: 3
+  dim: 192
+
+# 训练配置
+training:
+  epochs: 82
+  loss_function: 'MSE'
+  loss_para: 1.0
+  clip_v: 0.15
+  optimizer:
+    learning_rate: 0.001
+    weight_decay: 0.001
+
+# 数据预处理
+preprocessing:
+  scalar: true
+  scalar_contain_labels: true
+  target_value: 'I_P'
+  outlier_flag: true
+  interpolation: true
+  features_num: 5
+  lag_points: 84
+  Otl_Plt_M: 'sigma'
+  threshold: 5.0
+  limit: 3
+
+# 数据路径
+paths:
+  # 异常去除
+  data_directory: "E:/data/full_lines1/"
+  input_file: "E:\\code\\mission\\full_sampled_lines.csv"
+  # input_file: "./Exp/LineIndex/full2_sampled_lines.csv"
+  # 存在异常
+  # data_directory: "E:/data/output_lines_0-6/"
+  # input_file: "./Exp/LineIndex/sampled_lines.csv"
+  # 快速测试
+  # data_directory: "E:/data/output_lines_0-6/"
+  # input_file: "./Exp/LineIndex/sampled_lines_10.csv"
