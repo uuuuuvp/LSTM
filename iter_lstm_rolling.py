@@ -9,12 +9,15 @@ from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error,
 from torch.utils.data import DataLoader, TensorDataset
 
 start = time.time()
+# config_file = r"E:\Downloads\基于LSTM时间序列预测\基于LSTM时间序列预测\LSTM\Exp\ConfigPara\lstm_day_rolling.yaml"
 config_file = r"E:\Downloads\基于LSTM时间序列预测\基于LSTM时间序列预测\LSTM\Exp\ConfigPara\lstm_hour_rolling.yaml"
+
 with open(config_file, 'r', encoding='utf-8') as f:
     config = yaml.safe_load(f)
 
 # --- 配置解析 ---
 day_flag = config['data_split']['day_flag']
+sampling_method = config['data_split']['sampling_method']
 train_ratio = config['data_split']['train_ratio']
 val_ratio = config['data_split']['val_ratio']
 test_ratio = config['data_split']['test_ratio']
@@ -28,6 +31,7 @@ epochs = config['training']['epochs']
 # ======= 新增：Early Stop 开关 =======
 # 优先从yaml读，如果没有则默认为True
 early_stop_flag = config['training'].get('early_stop', False) 
+diff_flag = config['training'].get('diff_flag', True)
 # ====================================
 loss_function = config['training']['loss_function']
 learning_rate = config['training']['optimizer']['learning_rate']
@@ -54,7 +58,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 pin_memory = (device.type == 'cuda')
 
 lr_str = f"{learning_rate:.0e}".replace("e-0", "e")
-exp_id = f"D{dim}B{num_blocks}_bs{batch_size}_{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_E{epochs}_lr{lr_str}_f{features_num_config}_I{input_length}O{output_length}_C{clip_v}_rmT-MAX"
+exp_id = f"day_D{dim}B{num_blocks}_bs{batch_size}_{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_E{epochs}_lr{lr_str}_f{features_num_config}_I{input_length}O{output_length}_C{clip_v}_rmT-MAX"
 weight_dir = os.path.join("./weights", exp_id)
 
 if os.path.exists(weight_dir):
@@ -90,17 +94,43 @@ for idx, row in results_df.iterrows():
         f_outlier(df, target_value, outlier_flag=outlier_flag, threshold=threshold, method=Otl_Plt_M)
         f_interpolation(df, target_value, interpolation=interpolation)
         
-        # 特征工程
-        df['timestamp'] = pd.to_datetime(df['timestamp'].str.replace('国调_', ''), format='%Y%m%d_%H%M')
-        df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour / 24)
-        df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour / 24)
-        
-        if features_num_config == 5:
+        if day_flag:
+            df = resample_to_daily(df, target_value, method=sampling_method)
+            print(f"天采样完成: {len(df)} 天数据，采样方法={sampling_method}")
+        # 2. 处理时间格式（增加判断，避免天级别采样后报错）
+        if 'timestamp' in df.columns:
+            # 如果是采样后的 datetime 类型，就不再执行字符串替换和重新解析
+            if not pd.api.types.is_datetime64_any_dtype(df['timestamp']):
+                df['timestamp'] = pd.to_datetime(df['timestamp'].str.replace('国调_', ''), format='%Y%m%d_%H%M')
+        # 3. 计算差分（要在采样之后算，才有“日增长”的意义）
+        if diff_flag:
+            df['diff_1'] = df[target_value].diff().fillna(0)
+        # 4. 特征工程
+        if features_num_config > 1:
+            # 如果是天级别，hour 是固定的，sin/cos 会变成常数（全 0 或全 1），对模型没用
+            if not day_flag:
+                df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour / 24)
+                df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour / 24)
+            
             df['weekday_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.weekday / 7)
             df['weekday_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.weekday / 7)
-            feature_cols = ['hour_sin', 'hour_cos', 'weekday_sin', 'weekday_cos', target_value]
+
+        if day_flag:
+            # 天级别模式：去掉小时特征，因为采样后小时是固定的
+            if diff_flag:
+                feature_cols = ['weekday_sin', 'weekday_cos', 'diff_1', target_value]
+            else:
+                feature_cols = ['weekday_sin', 'weekday_cos', target_value]
         else:
-            feature_cols = ['hour_sin', 'hour_cos', target_value]
+            # 小时级别模式：保留小时特征
+            if features_num_config == 6 and diff_flag:
+                feature_cols = ['hour_sin', 'hour_cos', 'weekday_sin', 'weekday_cos', 'diff_1', target_value]
+            elif features_num_config == 5:
+                feature_cols = ['hour_sin', 'hour_cos', 'weekday_sin', 'weekday_cos', target_value]
+            elif features_num_config == 4 and diff_flag:
+                feature_cols = ['hour_sin', 'hour_cos', 'diff_1', target_value]
+            else:
+                feature_cols = ['hour_sin', 'hour_cos', target_value]
         
         features_num = len(feature_cols)
         features_ = df[feature_cols].values
