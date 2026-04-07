@@ -58,7 +58,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 pin_memory = (device.type == 'cuda')
 
 lr_str = f"{learning_rate:.0e}".replace("e-0", "e")
-exp_id = f"day_D{dim}B{num_blocks}_bs{batch_size}_{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_E{epochs}_lr{lr_str}_f{features_num_config}_I{input_length}O{output_length}_C{clip_v}_rmT-MAX"
+exp_id = f"nor_D{dim}B{num_blocks}_bs{batch_size}_{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_E{epochs}_lr{lr_str}_f{features_num_config}_I{input_length}O{output_length}_C{clip_v}_rmT-MAX"
 weight_dir = os.path.join("./weights", exp_id)
 
 if os.path.exists(weight_dir):
@@ -162,7 +162,7 @@ for idx, row in results_df.iterrows():
         LSTMMain_model = LSTMMain(input_size=features_num, output_len=output_length, lstm_hidden=dim, lstm_layers=num_blocks, batch_size=batch_size, device=device).to(device)
         loss_func = nn.MSELoss() if loss_function == 'MSE' else nn.HuberLoss(delta=loss_para)
         optimizer = torch.optim.AdamW(LSTMMain_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs, eta_min=1e-5)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs//3, eta_min=1e-5)
 
         # --- 训练核心循环 ---
         print(f"Training Starts... (EarlyStop: {early_stop_flag})")
@@ -227,7 +227,7 @@ for idx, row in results_df.iterrows():
 
         pre_array = np.vstack(pre_array)
         label_array = np.vstack(label_array)
-
+        
         # 反归一化处理
         if scalar_contain_labels and scalar:
             def inverse(data):
@@ -236,14 +236,15 @@ for idx, row in results_df.iterrows():
             label_final = inverse(label_array)
         else:
             pre_final, label_final = pre_array.flatten(), label_array.flatten()
-
+        scale_val = np.max(label_final) - np.min(label_final) + 1e-6  # 避免除0
         r2 = r2_score(label_final, pre_final)
-        mape = mean_absolute_percentage_error(label_final, pre_final)
-        print(f"结果: R2={r2:.4f} | MAPE={mape:.4f}")
+        mape = Mmape(label_final, pre_final)
+        mae = mean_absolute_error(label_final, pre_final) / scale_val
+        mse = mean_squared_error(label_final, pre_final) / (scale_val ** 2)
+        print(f"结果: R2={r2:.4f} | MAPE={mape:.2f} | mae={mae:.2f} | mse={mse:.2f}")
 
-        results_df.loc[idx, ['mae', 'mse', 'mape', 'Mmape', 'r2', 'status', 'train_loss', 'val_loss', 'loss_diff']] = [
-            mean_absolute_error(label_final, pre_final), mean_squared_error(label_final, pre_final),
-            mape, Mmape(label_final, pre_final), r2, 'success', final_train_loss, final_val_loss, final_val_loss - final_train_loss
+        results_df.loc[idx, ['mae', 'mse', 'Mmape', 'r2', 'status', 'train_loss', 'val_loss', 'loss_diff']] = [
+            mae, mse, mape, r2, 'success', final_train_loss, final_val_loss, final_val_loss - final_train_loss
         ]
 
     except Exception as e:
