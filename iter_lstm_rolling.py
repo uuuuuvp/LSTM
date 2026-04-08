@@ -58,7 +58,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 pin_memory = (device.type == 'cuda')
 
 lr_str = f"{learning_rate:.0e}".replace("e-0", "e")
-exp_id = f"nor_D{dim}B{num_blocks}_bs{batch_size}_{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_E{epochs}_lr{lr_str}_f{features_num_config}_I{input_length}O{output_length}_C{clip_v}_rmT-MAX"
+exp_id = f"test_mul_lipNone_nor_D{dim}B{num_blocks}_bs{batch_size}_{loss_function}{loss_para}_{Otl_Plt_M}{threshold}_E{epochs}_lr{lr_str}_f{features_num_config}_I{input_length}O{output_length}_C{clip_v}_rmT-MAX"
 weight_dir = os.path.join("./weights", exp_id)
 
 if os.path.exists(weight_dir):
@@ -111,6 +111,17 @@ for idx, row in results_df.iterrows():
             if not day_flag:
                 df['hour_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.hour / 24)
                 df['hour_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.hour / 24)
+                
+                df['is_weekend'] = (df['timestamp'].dt.weekday >= 5).astype(int)
+                
+                df['lag_1'] = df[target_value].shift(1)
+                df['lag_2'] = df[target_value].shift(2)
+                df['lag_3'] = df[target_value].shift(3)
+                df['lag_12'] = df[target_value].shift(12)   # 前1天同一时刻
+                df['lag_84'] = df[target_value].shift(84)   # 前7天同一时刻
+                df['roll_mean_3'] = df[target_value].rolling(window=3).mean()
+                df['roll_mean_6'] = df[target_value].rolling(window=6).mean()
+                df['roll_std_6'] = df[target_value].rolling(window=6).std()
             
             df['weekday_sin'] = np.sin(2 * np.pi * df['timestamp'].dt.weekday / 7)
             df['weekday_cos'] = np.cos(2 * np.pi * df['timestamp'].dt.weekday / 7)
@@ -129,30 +140,45 @@ for idx, row in results_df.iterrows():
                 feature_cols = ['hour_sin', 'hour_cos', 'weekday_sin', 'weekday_cos', target_value]
             elif features_num_config == 4 and diff_flag:
                 feature_cols = ['hour_sin', 'hour_cos', 'diff_1', target_value]
-            else:
+            elif features_num_config == 3:
                 feature_cols = ['hour_sin', 'hour_cos', target_value]
-        
+            else:
+                feature_cols = [
+                'hour_sin', 'hour_cos',
+                'weekday_sin', 'weekday_cos',
+                'lag_1', 'lag_12', 'lag_84',
+                'roll_mean_6', 'roll_std_6',
+                'diff_1',
+                target_value]
+                df = df.dropna(subset=feature_cols).reset_index(drop=True)
+            
         features_num = len(feature_cols)
         features_ = df[feature_cols].values
         labels_ = df[target_value].values
 
-        # 数据切分与标准化
-        split_train_val = int(len(features_) * train_ratio)
+        # 先按原始时间点确定切分边界
+        raw_train_end = int(len(features_) * train_ratio)
+        raw_val_end = raw_train_end + int(len(features_) * val_ratio)
+        # 标准化：只用训练段 fit
         if scalar:
             scalar_model = preprocessing.MinMaxScaler()
-            train_f = scalar_model.fit_transform(features_[:split_train_val])
-            val_test_f = scalar_model.transform(features_[split_train_val:])
-            features_ = np.vstack([train_f, val_test_f])
+            scalar_model.fit(features_[:raw_train_end])
+
+            features_ = scalar_model.transform(features_)
+
             if scalar_contain_labels:
                 labels_ = features_[:, -1]
-
-        # 构造窗口
-        features, labels = get_rolling_window_multistep(output_length, 0, input_length, features_.T, np.expand_dims(labels_, 0))
+        # --- 构造滑动窗口（先滑动再划分） ---
+        features, labels = get_rolling_window_multistep(
+            output_length, 0, input_length, features_.T, np.expand_dims(labels_, 0)
+        )
         labels = torch.squeeze(labels, dim=1).to(torch.float32)
         features = features.to(torch.float32)
 
-        idx_train = int(len(features) * train_ratio)
-        idx_val = idx_train + int(len(features) * val_ratio)
+        # --- 按时间顺序划分训练/验证/测试集 ---
+        num_samples = len(features)
+        idx_train = int(num_samples * train_ratio)
+        idx_val = idx_train + int(num_samples * val_ratio)
 
         train_Loader = DataLoader(TensorDataset(features[:idx_train], labels[:idx_train]), batch_size=batch_size, shuffle=True, pin_memory=pin_memory)
         val_Loader = DataLoader(TensorDataset(features[idx_train:idx_val], labels[idx_train:idx_val]), batch_size=batch_size, pin_memory=pin_memory)
